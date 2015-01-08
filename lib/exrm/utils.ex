@@ -53,8 +53,8 @@ defmodule ReleaseManager.Utils do
   """
   def relx(name, version, verbosity, upgrade?, dev) do
     # Setup paths
-    config     = rel_file_dest_path "relx.config"
-    output_dir = @relx_output_path |> Path.expand
+    config     = '#{rel_file_dest_path "relx.config"}'
+    output_dir = '#{@relx_output_path |> Path.expand}'
     # Determine whether to pass --dev-mode or not
     dev_mode?  = case dev do
       true  -> "--dev-mode"
@@ -69,18 +69,20 @@ defmodule ReleaseManager.Utils do
       _        -> 2 # Normal if we get an odd value
     end
     # Let relx do the heavy lifting
-    relx_path = Path.join([priv_path, "bin", "relx"])
-    command = case upgrade? do
-      false -> "#{relx_path} release tar -V #{v} --root #{File.cwd!} --config #{config} --relname #{name} --relvsn #{version} --output-dir #{output_dir} #{dev_mode?}"
+    args = case upgrade? do
+      false -> 'release tar -V #{v} #{dev_mode?}'
       true  ->
         last_release = get_last_release(name)
-        "#{relx_path} release relup tar -V #{v} --root #{File.cwd!} --config #{config} --relname #{name} --relvsn #{version} --output-dir #{output_dir} --upfrom \"#{last_release}\" #{dev_mode?}"
+        'release relup tar -V #{v} --upfrom \"#{last_release}\" #{dev_mode?}'
     end
-    case do_cmd command do
-      :ok         -> :ok
-      {:error, _} ->
-        {:error, "Failed to build release. Please fix any errors and try again."}
-    end
+    :relx.main([
+        config:     config,
+        output_dir: output_dir,
+        root:       '#{File.cwd!}',
+        relname:    '#{name}',
+        relvsn:     '#{version}'
+      ],
+      args)
   end
 
   @doc "Print an informational message without color"

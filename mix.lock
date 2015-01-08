@@ -1,1 +1,8 @@
-%{"conform": {:hex, :conform, "0.11.0"}}
+%{"conform": {:hex, :conform, "0.12.0"},
+  "erlware_commons": {:git, "https://github.com/erlware/erlware_commons.git", "02ab88513f9b0a80607170077938218b1457f6be", [branch: "master"]},
+  "erlydtl": {:git, "https://github.com/erlydtl/erlydtl.git", "8c876fde4c2b383c241d4d6cbba39d979548cd94", [tag: "0.9.0"]},
+  "getopt": {:git, "https://github.com/jcomellas/getopt.git", "626698975e63866156159661d100785d65eab6f9", [branch: "master"]},
+  "neotoma": {:git, "https://github.com/seancribbs/neotoma.git", "6c4a6009d3f34da2ec42c4f3585dae0abbb49dfc", [branch: "master"]},
+  "providers": {:git, "https://github.com/tsloughter/providers.git", "fc147b03b83488917202c69dee3d83a64c5fd5fc", [tag: "v1.0.0"]},
+  "rebar_vsn_plugin": {:git, "https://github.com/erlware/rebar_vsn_plugin.git", "fd40c960c7912193631d948fe962e1162a8d1334", [branch: "master"]},
+  "relx": {:git, "git://github.com/erlware/relx.git", "ba9309ca2431df62ab6a0008ae5a96a165675d2b", []}}

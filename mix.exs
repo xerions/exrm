@@ -8,14 +8,19 @@ defmodule ReleaseManager.Mixfile do
 
   def project do
     [ app: :exrm,
-      version: "0.14.16",
-      elixir: ">= 0.15.1 and ~> 1.0.0",
+      version: "1.0.0",
+      elixir: ">= 1.0.0",
       description: description,
       package: package,
-      deps: [{:conform, "~> 0.11.0"}] ]
+      deps: deps ]
   end
 
   def application, do: []
+
+  defp deps do
+    [{:conform, "~> 0.12.0"},
+     {:relx, github: "erlware/relx"}]
+  end
 
   defp description do
     """
