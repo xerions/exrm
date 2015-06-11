@@ -12,6 +12,20 @@ REL_DIR="$RELEASES_DIR/$REL_VSN"
 REL_LIB_DIR="$RELEASE_ROOT_DIR/lib"
 ERL_OPTS="{{{ERL_OPTS}}}"
 PIPE_DIR="$RELEASE_ROOT_DIR/tmp/erl_pipes/{{{PROJECT_NAME}}}/"
+
+GENERATED_CONFIG_DIR="${RELEASE_ROOT_DIR}/running-config"
+
+# TODO: defaulting MUTABLE_DIR to something like
+#       /run/${REL_NAME}-${REL_VSN}/
+#       (but i do not want to change current behaviour
+#        too much in cases where $MUTABLE_DIR is not set)
+# mutable stuff:
+if [ -n "${MUTABLE_DIR}" ]; then
+    PIPE_DIR="${MUTABLE_DIR}/erl_pipes/"
+    RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-${MUTABLE_DIR}/log}"
+    GENERATED_CONFIG_DIR="${MUTABLE_DIR}/running-config"
+fi
+
 RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_ROOT_DIR/log}"
 ERTS_DIR=""
 ROOTDIR=""
@@ -80,47 +94,55 @@ relx_start_command() {
 
 # Convert .conf to sys.config using conform escript
 generate_config() {
-    local conf_file="$RELEASE_CONFIG_DIR/$REL_NAME.conf"
+    local conform_file="$REL_DIR/$REL_NAME.conf"
     local schema_file="$REL_DIR/$REL_NAME.schema.exs"
+    if [ -n "$USER_CONFIG_FILE" ]; then
+        conform_file="$USER_CONFIG_FILE" # passed from the outside
+        echo "using \$USER_CONFIG_FILE=\"$USER_CONFIG_FILE\""
+    fi
     if [ -f "$schema_file" ]; then
-        if [ -f "$conf_file" ]; then
-            result="$("$BINDIR/escript" "$ROOTDIR"/bin/conform --conf "$conf_file" --schema "$schema_file" --config "$SYS_CONFIG" --output-dir "$CONFORM_OUT_DIR")"
+        if [ -f "$conform_file" ]; then
+            echo "using $conform_file to populate \"$GENERATED_CONFIG_DIR\"."
+            mkdir -pv "$GENERATED_CONFIG_DIR"
+            result="$("$BINDIR/escript" "$ROOTDIR"/bin/conform --conf "$conform_file" --schema "$schema_file" --config "$SYS_CONFIG" --output-dir "$GENERATED_CONFIG_DIR")"
             exit_status="$?"
             if [ "$exit_status" -ne 0 ]; then
                 exit "$exit_status"
             fi
+            if [ ! -r "${GENERATED_CONFIG_DIR}/sys.config" ]; then
+                echo "conform succeeded, but not sys.config generated at \"${GENERATED_CONFIG_DIR}/sys.config\"."
+                exit 1
+            else
+                SYS_CONFIG="${GENERATED_CONFIG_DIR}/sys.config"
+            fi
+            if [ -n "$VMARGS_PATH" -a -r "$VMARGS_PATH" ]; then
+                cp -v "$VMARGS_PATH" "${GENERATED_CONFIG_DIR}/vm.args"
+                VMARGS_PATH="${GENERATED_CONFIG_DIR}/vm.args"
+            fi
         else
-            echo "$conf_file not found in $RELEASE_CONFIG_DIR"
+            echo "$conform_file not found."
             exit 1
         fi
+    else
+        echo "no schema in \"$schema_file\""
     fi
 }
 
-# Use configs from environment if defined, then try from $CWD if exists, otherwise releases/VSN
-eval "RELEASE_CONFIG_DIR=\$$(echo "$REL_NAME" | awk '{print toupper($1)}')_CONFIG_DIR"
-if [ -z "$RELEASE_CONFIG_DIR" ]; then
-    CONFORM_OUT_DIR=$REL_DIR
+
+
+if [ -z "$VMARGS_PATH" ]; then
     if [ -f "$RELEASE_ROOT_DIR/vm.args" ]; then
-        RELEASE_CONFIG_DIR=$RELEASE_ROOT_DIR
         VMARGS_PATH="$RELEASE_ROOT_DIR/vm.args"
+    else
+        VMARGS_PATH="$REL_DIR/vm.args"
+    fi
+
+fi
+if [ -z "$SYS_CONFIG" ]; then
+    if [ -f "$RELEASE_CONFIG_DIR/sys.config" ]; then
         SYS_CONFIG="$RELEASE_ROOT_DIR/sys.config"
     else
-        RELEASE_CONFIG_DIR=$REL_DIR
-        VMARGS_PATH="$REL_DIR/vm.args"
         SYS_CONFIG="$REL_DIR/sys.config"
-    fi
-else
-    if [ -f "$RELEASE_CONFIG_DIR/vm.args" ]; then
-        VMARGS_PATH="$RELEASE_CONFIG_DIR/vm.args"
-    else
-        VMARGS_PATH="$REL_DIR/vm.args"
-    fi
-    if [ -f "$RELEASE_CONFIG_DIR/sys.config" ]; then
-        SYS_CONFIG="$RELEASE_CONFIG_DIR/sys.config"
-        CONFORM_OUT_DIR=$RELEASE_CONFIG_DIR
-    else
-        SYS_CONFIG="$REL_DIR/sys.config"
-        CONFORM_OUT_DIR=$REL_DIR
     fi
 fi
 
@@ -455,6 +477,8 @@ case "$1" in
 
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
+        echo "using SYS_CONFIG: \"$SYS_CONFIG\"."
+        echo "using VMARGS_PATH: \"$VMARGS_PATH\"."
         set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
             -boot "$REL_DIR/$BOOTFILE" -mode embedded -config "$SYS_CONFIG" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
