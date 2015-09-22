@@ -115,8 +115,15 @@ adjust_name() {
     esac
 }
 
+remove_mutable_config_dir() {
+    if [ -n "$RELEASE_MUTABLE_DIR" ] ; then
+        printf "removing $RELEASE_MUTABLE_DIR ..."
+        rm -rfv "$RELEASE_MUTABLE_DIR"
+    fi
+}
+
 #the node name can be set via environment variables
-#NODE_NAME or NODE_SNAME which overwrite a given name
+#NODE_NAME which overwrites a given name
 #from vm.args
 generate_vm_args() {
     printf "Generate vm.args in $GENERATED_CONFIG_DIR ...\n"
@@ -124,30 +131,28 @@ generate_vm_args() {
     # get a fresh release vm.args
     cp "$RELEASE_CONFIG_DIR/vm.args" "$GENERATED_CONFIG_DIR/vm.args"
 
-    if [ ! -z "$NODE_NAME" ]; then
+    if [ -n "$NODE_NAME" ]; then
         #remove naming flags from vm.args
-        sed -i -e '/-name/s/^/## removed: /' $VMARGS_PATH
-        sed -i -e '/-sname/s/^/## removed: /' $VMARGS_PATH
+        sed -i -e 's/^[ \t]*-s\?name\>/# disabled by exrm-boot: &/' $VMARGS_PATH
         NAME=$NODE_NAME
         adjust_name
         printf "Using node name \"$NAME\" from environment variable NODE_NAME.\n"
         #and put in own flag
         printf "\n## set via NODE_NAME env variable\n-name $NAME\n" >> $VMARGS_PATH
         NAME_TYPE="-name"
+        NAME_ARG="$NAME_TYPE $NAME"
     fi
-    
+
     if [ "$COOKIE_MODE" = "ignore" ]; then
-        printf "Cookie will be used from \"$HOME/.erlang.cookie\".\n"
-        sed -i -e '/-setcookie/s/^/## removed: /' $VMARGS_PATH
-        COOKIE=`cat $HOME/.erlang.cookie`
-        printf "\n## set due to \"COOKIE_MODE=ignore\"\n-setcookie $COOKIE\n" >> $VMARGS_PATH
+        printf "No Cookie handling. (\$HOME/.erlang.cookie might apply).\n"
         ERL_COOKIE_ARG=""
-    elif [ -s $COOKIE_MODE ] && [ ! -z $COOKIE_MODE ]; then
+    elif [ "${COOKIE_MODE:0:1}" = "/" ] && [ -s "$COOKIE_MODE" ] ; then
         # COOKIE_MODE is pointing to a cookie file
         printf "Cookie will be used from \"$COOKIE_MODE\".\n"
-        sed -i -e '/-setcookie/s/^/## removed: /' $VMARGS_PATH
-        COOKIE=`cat $COOKIE_MODE`
-        printf "\n## used from \"$COOKE_FILE\"\n-setcookie $COOKIE\n" >> $VMARGS_PATH
+        sed -i -e 's/^[ \t]*-setcookie/# disabled by exrm-boot: &/' $VMARGS_PATH
+        printf "\n## used from \"$COOKE_FILE\"\n-setcookie " >> $VMARGS_PATH
+        cat "$COOKIE_MODE" >> $VMARGS_PATH
+        echo >> $VMARGS_PATH
         ERL_COOKIE_ARG="-setcookie $COOKIE"
     else
         # COOKIE is read before
@@ -187,10 +192,7 @@ generate_sys_config() {
                 __conform="$ROOTDIR/bin/conform"
             fi
 
-            # remove old sys.config since conform seems to merge this one too
-            rm -v "$GENERATED_CONFIG_DIR/sys.config"
-
-            result="$("$BINDIR/escript" "$__conform" --conf "$__conform_file" --schema "$__schema_file" --config "$SYS_CONFIG" --output-dir "$GENERATED_CONFIG_DIR")"
+            result="$("$BINDIR/escript" "$__conform" --conf "$__conform_file" --schema "$__schema_file" --config "$RELEASE_CONFIG_DIR/sys.config" --output-dir "$GENERATED_CONFIG_DIR")"
             exit_status="$?"
             if [ "$exit_status" -ne 0 ]; then
                 exit "$exit_status"
@@ -245,8 +247,8 @@ if [ $RELX_REPLACE_OS_VARS ]; then
 fi
 
 # Extract the target node name from node.args
-NAME_ARG=$(egrep '^-s?name' "$VMARGS_PATH")
-if [ -z "$NAME_ARG" ]; then
+NAME_ARG=$(egrep '^-s?name' "$VMARGS_PATH" || true)
+if [ -z "$NAME_ARG" ] && [ -z "$NODE_NAME" ] ; then
     echo "vm.args needs to have either -name or -sname parameter."
     exit 1
 fi
@@ -258,15 +260,16 @@ adjust_name
 
 PIPE_DIR="${PIPE_DIR:-/tmp/erl_pipes/$NAME/}"
 
-# Extract the target cookie
-COOKIE_ARG="$(grep '^-setcookie' "$VMARGS_PATH")"
-if [ -z "$COOKIE_ARG" ]; then
-    echo "vm.args needs to have a -setcookie parameter."
-    exit 1
+if grep -q '^-setcookie' "$VMARGS_PATH" ; then
+    COOKIE_ARG=$( grep -m1 '^-setcookie'  "$VMARGS_PATH" )
+    COOKIE="${COOKIE_ARG#* }"
+else
+    # cookie will be used from $HOME/.erlang.cookie
+    COOKIE_ARG=""
+    COOKIE=""
 fi
 
 # Extract cookie name from COOKIE_ARG
-COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
 ERL_COOKIE_ARG=$COOKIE_ARG
 
 find_erts_dir
@@ -283,6 +286,7 @@ cd "$ROOTDIR"
 case "$1" in
     start|start_boot)
         # Make sure the config is generated first
+        remove_mutable_config_dir
         generate_vm_args
         generate_sys_config
         printf "Starting node $NAME ...\n"
@@ -366,6 +370,8 @@ case "$1" in
         do
             sleep 1
         done
+
+        remove_mutable_config_dir
         ;;
 
     restart)
@@ -383,6 +389,7 @@ case "$1" in
 
     reboot)
         # Make sure the config is generated first
+        remove_mutable_config_dir
         generate_vm_args
         generate_sys_config
         printf "Rebooting node $NAME ...\n"
@@ -559,6 +566,7 @@ case "$1" in
 
     console|console_clean|console_boot)
         # Make sure the config is generated first
+        remove_mutable_config_dir
         generate_vm_args
         generate_sys_config
         printf "Starting node $NAME ...\n"
@@ -617,6 +625,7 @@ case "$1" in
 
     foreground)
         # Make sure the config is generated first
+        remove_mutable_config_dir
         generate_vm_args
         generate_sys_config
         printf "Starting node $NAME ...\n"
