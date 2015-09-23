@@ -14,7 +14,7 @@ defmodule ReleaseManager.Mixfile do
   def application, do: []
 
   def deps do
-    [{:conform, "~> 0.16.0"},
+    [{:conform, "~> 0.17.0-x1", github: "xerions/conform"},
      {:relx, "~> 3.5.0" },
      {:earmark, "~> 0.1", only: :dev},
      {:ex_doc, "~> 0.9", only: :dev},
