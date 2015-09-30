@@ -53,14 +53,20 @@ relx_rem_sh() {
     #exec "$ERTS_DIR/bin/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot start_clean \
          #-setcookie "$COOKIE" -kernel net_ticktime "$TICKTIME"
 
+    if [ -z "$ERL_COOKIE_ARG" ]; then
+        IEX_COOKIE_ARG=""
+    else
+        IEX_COOKIE_ARG="--cookie $COOKIE"
+    fi
+
     # Setup Elixir remote shell command to control node
     exec "$BINDIR/erl" \
         -pa "$ROOTDIR"/lib/*/ebin "$ROOTDIR"/lib/consolidated \
         -hidden -noshell \
         -boot start_clean -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
         -kernel net_ticktime "$TICKTIME" \
-        -user Elixir.IEx.CLI "$NAME_TYPE" "$id" -setcookie "$COOKIE" \
-        -extra --no-halt +iex -"$NAME_TYPE" "$id" --cookie "$COOKIE" --remsh "$NAME"
+        -user Elixir.IEx.CLI "$NAME_TYPE" "$id" $ERL_COOKIE_ARG \
+        -extra --no-halt +iex -"$NAME_TYPE" "$id" $IEX_COOKIE_ARG --remsh "$NAME"
 }
 
 # Generate a random id
@@ -72,7 +78,7 @@ relx_gen_id() {
 relx_nodetool() {
     command="$1"; shift
     "$BINDIR/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
-                                 -setcookie "$COOKIE" "$command" "$@"
+                              $ERL_COOKIE_ARG "$command" "$@"
 }
 
 # Run an escript in the node's environment
@@ -88,8 +94,73 @@ relx_start_command() {
            "$START_OPTION"
 }
 
+# User can specify an sname without @hostname
+# This will fail when creating remote shell
+# So here we check for @ and add @hostname if missing
+adjust_name() {
+    case $NAME in
+        *@*)
+            # Nothing to do
+            ;;
+        *)
+            # Add @hostname
+            case $NAME_TYPE in
+                -sname)
+                    NAME=$NAME@`hostname -s`
+                    ;;
+                -name)
+                    NAME=$NAME@`hostname -f`
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+#the node name can be set via environment variables
+#NODE_NAME or NODE_SNAME which overwrite a given name
+#from vm.args
+generate_vm_args() {
+    printf "Generate vm.args in $GENERATED_CONFIG_DIR ...\n"
+
+    # get a fresh release vm.args
+    cp "$RELEASE_CONFIG_DIR/vm.args" "$GENERATED_CONFIG_DIR/vm.args"
+
+    if [ ! -z "$NODE_NAME" ]; then
+        #remove naming flags from vm.args
+        sed -i -e '/-name/s/^/## removed: /' $VMARGS_PATH
+        sed -i -e '/-sname/s/^/## removed: /' $VMARGS_PATH
+        NAME=$NODE_NAME
+        adjust_name
+        printf "Using node name \"$NAME\" from environment variable NODE_NAME.\n"
+        #and put in own flag
+        printf "\n## set via NODE_NAME env variable\n-name $NAME\n" >> $VMARGS_PATH
+        NAME_TYPE="-name"
+    fi
+    
+    if [ "$COOKIE_MODE" = "ignore" ]; then
+        printf "Cookie will be used from \"$HOME/.erlang.cookie\".\n"
+        sed -i -e '/-setcookie/s/^/## removed: /' $VMARGS_PATH
+        COOKIE=`cat $HOME/.erlang.cookie`
+        printf "\n## set due to \"COOKIE_MODE=ignore\"\n-setcookie $COOKIE\n" >> $VMARGS_PATH
+        ERL_COOKIE_ARG=""
+    elif [ -s $COOKIE_MODE ] && [ ! -z $COOKIE_MODE ]; then
+        # COOKIE_MODE is pointing to a cookie file
+        printf "Cookie will be used from \"$COOKIE_MODE\".\n"
+        sed -i -e '/-setcookie/s/^/## removed: /' $VMARGS_PATH
+        COOKIE=`cat $COOKIE_MODE`
+        printf "\n## used from \"$COOKE_FILE\"\n-setcookie $COOKIE\n" >> $VMARGS_PATH
+        ERL_COOKIE_ARG="-setcookie $COOKIE"
+    else
+        # COOKIE is read before
+        printf "Cookie will be used from release vm.args.\n"
+        ERL_COOKIE_ARG="-setcookie $COOKIE"
+    fi
+}
+
+
 # Convert .conf to sys.config using conform escript
-generate_config() {
+generate_sys_config() {
+    printf "Generate sys.config in $GENERATED_CONFIG_DIR ...\n"
     __schema_file="$REL_DIR/$REL_NAME.schema.exs"
     if [ -z "$RELEASE_CONFIG_FILE" ]; then
         __conform_file="$RELEASE_CONFIG_DIR/$REL_NAME.conf"
@@ -186,26 +257,7 @@ fi
 # Extract the name type and name from the NAME_ARG for REMSH
 NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
 NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
-
-# User can specify an sname without @hostname
-# This will fail when creating remote shell
-# So here we check for @ and add @hostname if missing
-case $NAME in
-    *@*)
-        # Nothing to do
-        ;;
-    *)
-        # Add @hostname
-        case $NAME_TYPE in
-            -sname)
-                NAME=$NAME@`hostname -s`
-                ;;
-            -name)
-                NAME=$NAME@`hostname -f`
-                ;;
-        esac
-        ;;
-esac
+adjust_name
 
 PIPE_DIR="${PIPE_DIR:-/tmp/erl_pipes/$NAME/}"
 
@@ -218,6 +270,7 @@ fi
 
 # Extract cookie name from COOKIE_ARG
 COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
+ERL_COOKIE_ARG=$COOKIE_ARG
 
 find_erts_dir
 export ROOTDIR="$RELEASE_ROOT_DIR"
@@ -233,7 +286,9 @@ cd "$ROOTDIR"
 case "$1" in
     start|start_boot)
         # Make sure the config is generated first
-        generate_config
+        generate_vm_args
+        generate_sys_config
+        printf "Starting node $NAME ...\n"
         # Make sure there is not already a node running
         #RES=`$NODETOOL ping`
         #if [ "$RES" = "pong" ]; then
@@ -277,12 +332,12 @@ case "$1" in
         ;;
 
     stop)
+        printf "Stopping node $NAME ...\n"
         # Wait for the node to completely stop...
         # systemd uses the $MAINPID environment variable if the app is started
         # as a systemd unit (e.g. the script is started from within a unit file)
         if ! [ -z "$MAINPID" ]; then
             PID="$MAINPID"
-            echo ">> MAINPID: $MAINPID"
         else
             case $(uname -s) in
                 Linux|Darwin|FreeBSD|DragonFly|NetBSD|OpenBSD)
@@ -318,7 +373,9 @@ case "$1" in
 
     restart)
         # Make sure the config is generated first
-        generate_config
+        # vm.args is NOT updated
+        generate_sys_config
+        printf "Restarting node $NAME ...\n"
         ## Restart the VM without exiting the process
         relx_nodetool "restart"
         exit_status=$?
@@ -329,7 +386,9 @@ case "$1" in
 
     reboot)
         # Make sure the config is generated first
-        generate_config
+        generate_vm_args
+        generate_sys_config
+        printf "Rebooting node $NAME ...\n"
         ## Restart the VM completely (uses heart to restart it)
         relx_nodetool "reboot"
         exit_status=$?
@@ -339,6 +398,7 @@ case "$1" in
         ;;
 
     ping)
+        printf "Ping to node $NAME.\n"
         ## See if the VM is alive
         relx_nodetool "ping"
         exit_status=$?
@@ -377,6 +437,7 @@ case "$1" in
         ;;
 
     attach)
+        printf "Attaching to node $NAME ...\n"
         # Make sure a node IS running
         relx_nodetool "ping" > /dev/null
         exit_status=$?
@@ -390,6 +451,7 @@ case "$1" in
         ;;
 
     remote_console)
+        printf "Connecting to node $NAME ...\n"
         # Make sure a node IS running
         relx_nodetool "ping" > /dev/null
         exit_status=$?
@@ -500,7 +562,9 @@ case "$1" in
 
     console|console_clean|console_boot)
         # Make sure the config is generated first
-        generate_config
+        generate_vm_args
+        generate_sys_config
+        printf "Starting node $NAME ...\n"
         # .boot file typically just $REL_NAME (ie, the app name)
         # however, for debugging, sometimes start_clean.boot is useful.
         # For e.g. 'setup', one may even want to name another boot script.
@@ -542,6 +606,7 @@ case "$1" in
             ${CONFORM_OPTS} \
             -user Elixir.IEx.CLI -extra --no-halt +iex
 
+
         # Dump environment info for logging purposes
         echo "Exec: $@" -- ${1+$ARGS}
         echo "Root: $ROOTDIR"
@@ -556,7 +621,9 @@ case "$1" in
 
     foreground)
         # Make sure the config is generated first
-        generate_config
+        generate_vm_args
+        generate_sys_config
+        printf "Starting node $NAME ...\n"
         # start up the release in the foreground for use by runit
         # or other supervision services
 
