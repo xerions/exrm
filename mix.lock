@@ -1,5 +1,5 @@
 %{"bbmustache": {:hex, :bbmustache, "1.0.3"},
-  "conform": {:git, "https://github.com/xerions/conform.git", "42b76b9f91e82788613eec121c671cc7e5f7a602", [branch: "master"]},
+  "conform": {:git, "https://github.com/xerions/conform.git", "920a3fc7842230a0ccbec7b603debebb24463e8b", [branch: "master"]},
   "coverex": {:hex, :coverex, "1.4.2"},
   "earmark": {:hex, :earmark, "0.1.17"},
   "erlware_commons": {:hex, :erlware_commons, "0.15.0"},
