@@ -117,9 +117,9 @@ adjust_name() {
 }
 
 remove_mutable_config_dir() {
-    if [ -n "$RELEASE_MUTABLE_DIR" ] ; then
-        printf "removing $RELEASE_MUTABLE_DIR ..."
-        rm -rfv "$RELEASE_MUTABLE_DIR"
+    if [ -n "$GENERATED_CONFIG_DIR" ] ; then
+        printf "removing $GENERATED_CONFIG_DIR ..."
+        rm -rfv "$GENERATED_CONFIG_DIR"
     fi
 }
 
@@ -128,6 +128,7 @@ remove_mutable_config_dir() {
 #from vm.args
 generate_vm_args() {
     printf "Generate vm.args in $GENERATED_CONFIG_DIR ...\n"
+    mkdir -pv "$GENERATED_CONFIG_DIR"
 
     # get a fresh release vm.args
     cp "$RELEASE_CONFIG_DIR/vm.args" "$GENERATED_CONFIG_DIR/vm.args"
@@ -166,6 +167,11 @@ generate_vm_args() {
 # Convert .conf to sys.config using conform escript
 generate_sys_config() {
     printf "Generate sys.config in $GENERATED_CONFIG_DIR ...\n"
+    mkdir -pv "$GENERATED_CONFIG_DIR"
+
+    # get a fresh release sys.config
+    cp "$RELEASE_CONFIG_DIR/sys.config" "$GENERATED_CONFIG_DIR/sys.config"
+
     __schema_file="$REL_DIR/$REL_NAME.schema.exs"
     if [ -z "$RELEASE_CONFIG_FILE" ]; then
         __conform_file="$RELEASE_CONFIG_DIR/$REL_NAME.conf"
@@ -377,7 +383,7 @@ case "$1" in
             sleep 1
         done
 
-        remove_mutable_config_dir
+        rm -rfv "$RELEASE_MUTABLE_DIR"
         ;;
 
     restart)
