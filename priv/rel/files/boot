@@ -148,7 +148,7 @@ generate_vm_args() {
     if [ "$COOKIE_MODE" = "ignore" ]; then
         printf "No Cookie handling. (\$HOME/.erlang.cookie might apply).\n"
         ERL_COOKIE_ARG=""
-    elif [ "${COOKIE_MODE:0:1}" = "/" ] && [ -s "$COOKIE_MODE" ] ; then
+    elif [ "${COOKIE_MODE#/}" != "${COOKIE_MODE}" ] && [ -s "$COOKIE_MODE" ] ; then
         # COOKIE_MODE is pointing to a cookie file
         printf "Cookie will be used from \"$COOKIE_MODE\".\n"
         sed -i -e 's/^[ \t]*-setcookie/# disabled by exrm-boot: &/' $VMARGS_PATH
