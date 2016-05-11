@@ -1,4 +1,68 @@
 #!/bin/sh
+#
+# boot and control script for elixir releases
+#
+# Configuration Mechanism
+# -----------------------
+#
+# This script delivers a simplified configuration mechanism by
+# using conform to translate a configuration file in ini-style
+# (called the `conform file`) with a schema (`config.exs`) and
+# merge the result on top of an erlang terms based `release config`.
+# The result is stored in `$GENERATED_CONFIG_DIR` and used when
+# starting the release. A default `conform file`, the `config.exs`
+# and the `release config` are part of the release.
+#
+# $RELEASE_ROOT_DIR    (example: /opt/ExampleVendor/HelloWorldApp/)
+#    This is the root directory of your elixir release. This is
+#    the location where all code is deployed to. It also contains
+#    a default `conform file`, the `config.exs` and the `release config`.
+#    This variable is calculated as a relative location to this script ($0).
+#
+# $GENERATED_CONFIG_DIR   (example: /run/HelloWorldApp/running-config/)
+#    This is (quite obviously) the place where generated config is
+#    written to. It defaults to $RELEASE_ROOT_DIR/running-config
+#    but can be changed by setting $RELEASE_MUTABLE_DIR. Using
+#    non-default settings will allow distribution of releases via
+#    NFS or other distributed means (shared release dir but dedicated
+#    mutable dir for state and specific generated configuration).
+#
+# $RELEASE_CONFIG_FILE    (example /etc/HelloWorld.conf)
+#    This variable can be passed as environment and changes the location
+#    of the used `conform file`. This (in combination with a changed
+#    $RELEASE_MUTABLE_DIR) allows shared and/or read-only release
+#    directories with ini-style configuration coming from a dedicated
+#    location.
+#
+# Example scenario of what happens on release boot:
+#
+# `conform file`: /etc/HelloWorld.conf
+# $RELEASE_ROOT_DIR: /opt/ExampleVendor/HelloWorldApp/
+# `release config`: /opt/ExampleVendor/HelloWorldApp/releases/1.0.7/sys.config
+# `config.exs`:   /opt/ExampleVendor/HelloWorldApp/releases/1.0.7/HelloWorld.schema.exs
+# $RELEASE_MUTABLE_DIR: /run/HelloWorldApp
+# $GENERATED_CONFIG_DIR: /run/HelloWorldApp/running-config
+# resultant sys.config: /run/HelloWorldApp/running-config/sys.config
+#
+# On every release boot the following things happen:
+#
+# 1) `conform file` (the ini-style config file edited by the admin)·
+#    is copied from /etc/HelloWorld.conf to /run/HelloWorldApp/running-config/HelloWorld.conf
+#
+# 2) `conform` is run with:
+#       --conf /run/HelloWorldApp/running-config/HelloWorld.conf
+#       --schema /opt/ExampleVendor/HelloWorldApp/releases/1.0.7/HelloWorld.schema.exs
+#       --config /opt/ExampleVendor/HelloWorldApp/releases/1.0.7/sys.config
+#       --output-dir /run/HelloWorldApp/running-config
+#    and will thus create a /run/HelloWorldApp/running-config/sys.config
+#
+# 3) The release is started with `-config /run/HelloWorldApp/running-config/sys.config`
+#
+# In this scenario /run/HelloWorldApp/running-config/ (sys.config and HelloWorld.conf)
+# are not meant for human editing. Both files reflect the configuration of the running
+# release (thus `running-config`) and can be used to show differences to the human
+# editable `/etc/HelloWorld.conf` configuration or to revert configuration changes.
+#
 
 set -e
 
